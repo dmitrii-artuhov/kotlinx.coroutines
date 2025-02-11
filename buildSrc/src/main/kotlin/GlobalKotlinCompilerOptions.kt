@@ -1,7 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.KotlinCommonCompilerOptions
 
 internal fun KotlinCommonCompilerOptions.configureGlobalKotlinArgumentsAndOptIns() {
-    freeCompilerArgs.addAll("-progressive")
+    freeCompilerArgs.addAll("-progressive", "-Xlambdas=class")
     optIn.addAll(
         "kotlin.experimental.ExperimentalTypeInference",
         // our own opt-ins that we don't want to bother with in our own code:

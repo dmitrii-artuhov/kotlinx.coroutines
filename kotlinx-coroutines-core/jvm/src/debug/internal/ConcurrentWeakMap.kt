@@ -1,4 +1,4 @@
-package kotlinx.coroutines.debug.internal
+package kotlinx.coroutines.internal
 
 import kotlinx.atomicfu.*
 import kotlinx.coroutines.internal.*

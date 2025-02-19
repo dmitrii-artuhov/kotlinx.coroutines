@@ -3,62 +3,118 @@ package kotlinx.coroutines.scheduling
 import org.jetbrains.kotlinx.lincheck.*
 import org.junit.Test
 import java.util.concurrent.*
+import java.util.concurrent.atomic.*
 import kotlin.concurrent.*
 import kotlin.jvm.internal.*
 import kotlin.test.*
 
 @OptIn(ExperimentalModelCheckingAPI::class)
 class WorkQueueModelCheckingTest {
-    fun println(msg: String) {
-        System.out.println(msg)
-        System.out.flush()
+
+    @Ignore("Unexpected deadlock found")
+    @Test
+    fun testStealing() {
+        runConcurrentTest(1) {
+            val threads = mutableListOf<Thread>()
+            val offerIterations = 3
+            val stealersCount = 2
+            val stolenTasks = Array(stealersCount) { GlobalQueue() }
+            val globalQueue = GlobalQueue() // only producer will use it
+            val producerQueue = WorkQueue()
+            val producerFinished = AtomicBoolean(false)
+
+            val startLatch = CountDownLatch(1)
+
+            threads += thread(name = "producer") {
+                startLatch.await()
+                for (i in 1..offerIterations) {
+                    while (producerQueue.size > BUFFER_CAPACITY / 2) {
+                        Thread.yield()
+                    }
+
+                    producerQueue.add(task(i.toLong()))?.let { globalQueue.addLast(it) }
+                }
+
+                producerFinished.set(true)
+            }
+
+            for (i in 0 until stealersCount) {
+                threads += thread(name = "stealer $i") {
+                    val ref = Ref.ObjectRef<Task?>()
+                    val myQueue = WorkQueue()
+                    startLatch.await()
+                    while (!producerFinished.get() || producerQueue.size != 0) {
+                        stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
+                        producerQueue.trySteal(ref)
+                    }
+
+                    // Drain last element which is not counted in buffer
+                    stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
+                    producerQueue.trySteal(ref)
+                    stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
+                }
+            }
+
+            startLatch.countDown()
+            threads.forEach { it.join() }
+            validate(offerIterations, stolenTasks, globalQueue)
+        }
     }
 
+    //@Ignore("Unexpected deadlock found")
     @Test
-    @Ignore("Constructor of CountDownLatch causes infinite execution time even in single thread")
     fun testSingleProducerSingleStealer() {
         runConcurrentTest(1) {
             val threads = mutableListOf<Thread>()
-            val offerIterations = 3 // memory pressure, not CPU time
+            val offerIterations = 3
             val producerQueue = WorkQueue()
-            println("GPMC working")
-
             val startLatch = CountDownLatch(1)
-//            threads += thread(name = "producer") {
-//                println("Producer blocked")
-//                //startLatch.await()
-////                for (i in 1..offerIterations) {
-////                    while (producerQueue.size == BUFFER_CAPACITY - 1) {
-////                        Thread.yield()
-////                    }
-////
-////                    // No offloading to global queue here
-////                    producerQueue.add(task(i.toLong()))
-////                }
-//                println("Producer ended")
-//            }
 
-            //val stolen = GlobalQueue()
-//            threads += thread(name = "stealer") {
-////                val myQueue = WorkQueue()
-////                val ref = Ref.ObjectRef<Task?>()
-//                println("Stealer blocked")
-//                //startLatch.await()
-////                while (stolen.size != offerIterations) {
-////                    if (producerQueue.trySteal(ref) != NOTHING_TO_STEAL) {
-////                        stolen.addAll(myQueue.drain(ref).map { task(it) })
-////                    }
-////                }
-////                stolen.addAll(myQueue.drain(ref).map { task(it) })
-//                println("Producer ended")
-//            }
+            threads += thread(name = "producer") {
+                startLatch.await()
+                for (i in 1..offerIterations) {
+                    while (producerQueue.size == BUFFER_CAPACITY - 1) {
+                        Thread.yield()
+                    }
 
-            println("GPMC initialized threads")
-            //startLatch.countDown()
-            println("[GPMC]: allow threads to start!")
+                    // No offloading to global queue here
+                    producerQueue.add(task(i.toLong()))
+                }
+            }
+
+            val stolen = GlobalQueue()
+            threads += thread(name = "stealer") {
+                val myQueue = WorkQueue()
+                val ref = Ref.ObjectRef<Task?>()
+                startLatch.await()
+                while (stolen.size != offerIterations) {
+                    if (producerQueue.trySteal(ref) != NOTHING_TO_STEAL) {
+                        stolen.addAll(myQueue.drain(ref).map { task(it) })
+                    }
+                }
+                stolen.addAll(myQueue.drain(ref).map { task(it) })
+            }
+
+            startLatch.countDown()
             threads.forEach { it.join() }
-            //assertEquals((1L..offerIterations).toSet(), stolen.map { it.submissionTime }.toSet())
+            assertEquals((1L..offerIterations).toSet(), stolen.map { it.submissionTime }.toSet())
         }
+    }
+
+    private fun validate(
+        offerIterations: Int,
+        stolenTasks: Array<GlobalQueue>,
+        globalQueue: GlobalQueue,
+    ) {
+        val result = mutableSetOf<Long>()
+        for (stolenTask in stolenTasks) {
+            assertEquals(stolenTask.size, stolenTask.map { it }.toSet().size)
+            result += stolenTask.map { it.submissionTime }
+        }
+
+        result += globalQueue.map { it.submissionTime }
+        val expected = (1L..offerIterations).toSet()
+        assertEquals(expected, result, "Following elements are missing: ${(expected - result)}")
     }
 
     private fun GlobalQueue.addAll(tasks: Collection<Task>) {

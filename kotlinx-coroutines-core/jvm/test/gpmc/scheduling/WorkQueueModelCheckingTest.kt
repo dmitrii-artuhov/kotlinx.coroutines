@@ -1,5 +1,6 @@
 package kotlinx.coroutines.scheduling
 
+import gpmc.*
 import org.jetbrains.kotlinx.lincheck.*
 import org.junit.Test
 import java.util.concurrent.*
@@ -8,96 +9,91 @@ import kotlin.concurrent.*
 import kotlin.jvm.internal.*
 import kotlin.test.*
 
-@OptIn(ExperimentalModelCheckingAPI::class)
-class WorkQueueModelCheckingTest {
+class WorkQueueModelCheckingTest : GPMCTestBase() {
     @Ignore("Unexpected deadlock found")
     @Test
-    fun testStealing() {
-        runConcurrentTest(1) {
-            val threads = mutableListOf<Thread>()
-            val offerIterations = 3
-            val stealersCount = 2
-            val stolenTasks = Array(stealersCount) { GlobalQueue() }
-            val globalQueue = GlobalQueue() // only producer will use it
-            val producerQueue = WorkQueue()
-            val producerFinished = AtomicBoolean(false)
+    fun testStealing() = runGPMCTest(1) {
+        val threads = mutableListOf<Thread>()
+        val offerIterations = 3
+        val stealersCount = 2
+        val stolenTasks = Array(stealersCount) { GlobalQueue() }
+        val globalQueue = GlobalQueue() // only producer will use it
+        val producerQueue = WorkQueue()
+        val producerFinished = AtomicBoolean(false)
 
-            val startLatch = CountDownLatch(1)
+        val startLatch = CountDownLatch(1)
 
-            threads += thread(name = "producer") {
-                startLatch.await()
-                for (i in 1..offerIterations) {
-                    while (producerQueue.size > BUFFER_CAPACITY / 2) {
-                        Thread.yield()
-                    }
-
-                    producerQueue.add(task(i.toLong()))?.let { globalQueue.addLast(it) }
+        threads += thread(name = "producer") {
+            startLatch.await()
+            for (i in 1..offerIterations) {
+                while (producerQueue.size > BUFFER_CAPACITY / 2) {
+                    Thread.yield()
                 }
 
-                producerFinished.set(true)
+                producerQueue.add(task(i.toLong()))?.let { globalQueue.addLast(it) }
             }
 
-            for (i in 0 until stealersCount) {
-                threads += thread(name = "stealer $i") {
-                    val ref = Ref.ObjectRef<Task?>()
-                    val myQueue = WorkQueue()
-                    startLatch.await()
-                    while (!producerFinished.get() || producerQueue.size != 0) {
-                        stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
-                        producerQueue.trySteal(ref)
-                    }
+            producerFinished.set(true)
+        }
 
-                    // Drain last element which is not counted in buffer
+        for (i in 0 until stealersCount) {
+            threads += thread(name = "stealer $i") {
+                val ref = Ref.ObjectRef<Task?>()
+                val myQueue = WorkQueue()
+                startLatch.await()
+                while (!producerFinished.get() || producerQueue.size != 0) {
                     stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
                     producerQueue.trySteal(ref)
-                    stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
                 }
-            }
 
-            startLatch.countDown()
-            threads.forEach { it.join() }
-            validate(offerIterations, stolenTasks, globalQueue)
+                // Drain last element which is not counted in buffer
+                stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
+                producerQueue.trySteal(ref)
+                stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
+            }
         }
+
+        startLatch.countDown()
+        threads.forEach { it.join() }
+        validate(offerIterations, stolenTasks, globalQueue)
     }
 
     @Ignore("Unexpected deadlock found")
     @Test
-    fun testSingleProducerSingleStealer() {
-        runConcurrentTest(1) {
-            val threads = mutableListOf<Thread>()
-            val offerIterations = 3
-            val producerQueue = WorkQueue()
-            val startLatch = CountDownLatch(1)
+    fun testSingleProducerSingleStealer() = runGPMCTest(1) {
+        val threads = mutableListOf<Thread>()
+        val offerIterations = 3
+        val producerQueue = WorkQueue()
+        val startLatch = CountDownLatch(1)
 
-            threads += thread(name = "producer") {
-                startLatch.await()
-                for (i in 1..offerIterations) {
-                    while (producerQueue.size == BUFFER_CAPACITY - 1) {
-                        Thread.yield()
-                    }
-
-                    // No offloading to global queue here
-                    producerQueue.add(task(i.toLong()))
+        threads += thread(name = "producer") {
+            startLatch.await()
+            for (i in 1..offerIterations) {
+                while (producerQueue.size == BUFFER_CAPACITY - 1) {
+                    Thread.yield()
                 }
-            }
 
-            val stolen = GlobalQueue()
-            threads += thread(name = "stealer") {
-                val myQueue = WorkQueue()
-                val ref = Ref.ObjectRef<Task?>()
-                startLatch.await()
-                while (stolen.size != offerIterations) {
-                    if (producerQueue.trySteal(ref) != NOTHING_TO_STEAL) {
-                        stolen.addAll(myQueue.drain(ref).map { task(it) })
-                    }
-                }
-                stolen.addAll(myQueue.drain(ref).map { task(it) })
+                // No offloading to global queue here
+                producerQueue.add(task(i.toLong()))
             }
-
-            startLatch.countDown()
-            threads.forEach { it.join() }
-            assertEquals((1L..offerIterations).toSet(), stolen.map { it.submissionTime }.toSet())
         }
+
+        val stolen = GlobalQueue()
+        threads += thread(name = "stealer") {
+            val myQueue = WorkQueue()
+            val ref = Ref.ObjectRef<Task?>()
+            startLatch.await()
+            while (stolen.size != offerIterations) {
+                if (producerQueue.trySteal(ref) != NOTHING_TO_STEAL) {
+                    stolen.addAll(myQueue.drain(ref).map { task(it) })
+                }
+            }
+            stolen.addAll(myQueue.drain(ref).map { task(it) })
+        }
+
+        startLatch.countDown()
+        threads.forEach { it.join() }
+        assertEquals((1L..offerIterations).toSet(), stolen.map { it.submissionTime }.toSet())
     }
 
     private fun validate(

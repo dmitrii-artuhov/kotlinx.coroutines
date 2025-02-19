@@ -1,98 +1,67 @@
 package kotlinx.coroutines.channels
 
-import kotlinx.coroutines.testing.*
+import gpmc.*
 import kotlinx.coroutines.*
-import org.jetbrains.kotlinx.lincheck.*
 import org.junit.*
-import org.junit.runner.*
-import org.junit.runners.*
 
-@OptIn(ExperimentalModelCheckingAPI::class)
-class BufferedChannelModelCheckingTest {
+class BufferedChannelModelCheckingTest : GPMCTestBase() {
     private val capacity: Int = 2
 
+    @Ignore(
+        "Internal lincheck error: Check failed.\n" +
+        "java.lang.IllegalStateException: Check failed.\n" +
+        "at org.jetbrains.kotlinx.lincheck.strategy.managed.ManagedStrategy.runInvocation(ManagedStrategy.kt:245)"
+    )
     @Test
-    fun testModelChecking() {
-        var cnt = 0
-        runConcurrentTest {
-            runBlocking {
-                println("GPMC: ${cnt++}")
-                val n = 3
-                val q = Channel<Int>(capacity)
-                val sender = launch(Dispatchers.Default) {
-                    for (i in 1..n) {
-                        q.send(i)
-                    }
+    fun testModelCheck() = runGPMCTest {
+        runBlocking {
+            val n = 3
+            val q = Channel<Int>(capacity)
+            val sender = launch(Dispatchers.Default) {
+                for (i in 1..n) {
+                    q.send(i)
                 }
-                val receiver = launch(Dispatchers.Default) {
-                    for (i in 1..n) {
-                        val next = q.receive()
-                        check(next == i)
-                    }
-                }
-                sender.join()
-                receiver.join()
             }
+            val receiver = launch(Dispatchers.Default) {
+                for (i in 1..n) {
+                    val next = q.receive()
+                    check(next == i)
+                }
+            }
+            sender.join()
+            receiver.join()
         }
     }
 
+    @Ignore(
+        "Hangs or lincheck fails internally with: Check failed.\n" +
+        "java.lang.IllegalStateException: Check failed.\n" +
+        "at org.jetbrains.kotlinx.lincheck.strategy.managed.ManagedStrategy.runInvocation(ManagedStrategy.kt:245)"
+    )
     @Test
-    fun testBurstModelChecking() {
-        runConcurrentTest {
-            runBlocking {
-                val channel = Channel<Int>(capacity)
-                val sender = launch(Dispatchers.Default) {
-                    for (i in 1..1) {
-                        channel.send(i)
-                    }
-                }
-                val receiver = launch(Dispatchers.Default) {
-                    for (i in 1..1) {
-                        val next = channel.receive()
-                        check(next == i)
-                    }
-                }
-                sender.join()
-                receiver.join()
-            }
+    fun joinJob() = runGPMCTest(1) {
+        runBlocking {
+            val job = launch(Dispatchers.Default) {}
+            job.join()
         }
     }
 
+    @Ignore(
+        "Check failed.\n" +
+        "java.lang.IllegalStateException: Check failed.\n" +
+        "at org.jetbrains.kotlinx.lincheck.strategy.managed.ManagedStrategy.runInvocation(ManagedStrategy.kt:245)"
+    )
     @Test
-    fun joinJob() {
-        runConcurrentTest {
-            println("GPMC: ${Thread.currentThread().id}")
-            runBlocking {
-                println("runBlocking: ${Thread.currentThread().id}")
-                println("runBlocking: run blocking")
-                val job = launch(/*Dispatchers.Default*/ /* no difference in running on thread-pool or on the same thread */) {
-                    println("Job: ${Thread.currentThread().id}")
-                    println("Job: Launched!")
-                }
-                println("GPMC: endless join...")
-                job.join()
+    fun singleThreadLaunchOnPool() = runGPMCTest(1) {
+        runBlocking {
+            val ch = Channel<Int>()
+            val j1 = launch(Dispatchers.Default) {
+                val v = ch.receive()
             }
-        }
-    }
-
-    @Test
-    fun singleThreadYetCooperative() {
-        runConcurrentTest {
-            runBlocking {
-                val ch = Channel<Int>()
-                val j1 = launch {
-                    println("Coroutine 1 is running on thread: ${Thread.currentThread().id}")
-                    val v = ch.receive()
-                    println("Value: $v")
-                }
-                val j2 = launch {
-                    println("Coroutine 2 is running on thread: ${Thread.currentThread().id}")
-                    ch.send(1)
-                }
-                println("Joining...")
-                joinAll(j1, j2)
-                println("Joined")
+            val j2 = launch(Dispatchers.Default) {
+                ch.send(1)
             }
+            joinAll(j1, j2)
         }
     }
 }

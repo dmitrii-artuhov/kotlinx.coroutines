@@ -10,7 +10,6 @@ import kotlin.test.*
 
 @OptIn(ExperimentalModelCheckingAPI::class)
 class WorkQueueModelCheckingTest {
-
     @Ignore("Unexpected deadlock found")
     @Test
     fun testStealing() {

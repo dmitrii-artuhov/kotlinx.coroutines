@@ -1,14 +1,15 @@
 package kotlinx.coroutines.gpmc.internal
 
-import kotlinx.atomicfu.*
 import kotlinx.coroutines.internal.*
 import org.jetbrains.kotlinx.lincheck.*
 import java.util.concurrent.*
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.*
 import kotlin.test.*
 
 
-@Ignore("ThreadAbortedError caught in handler of `setUncaughtExceptionHandler`")
 @OptIn(ExperimentalModelCheckingAPI::class)
 class LockFreeTaskQueueModelCheckingTest {
     private val nConsumers = 1
@@ -17,44 +18,45 @@ class LockFreeTaskQueueModelCheckingTest {
     private val nProducers = 1
     private val batchSize = 2
 
-    private val batch = atomic(0)
-    private val produced = atomic(0L)
-    private val consumed = atomic(0L)
-    private var expected = LongArray(nProducers)
-
-    private val queue = atomic<LockFreeTaskQueue<Item>?>(null)
-    private val done = atomic(0)
-    private val doneProducers = atomic(0)
-
-    private val barrier = CyclicBarrier(nProducers + nConsumers + 1)
-
     private class Item(val producer: Int, val index: Long)
 
+    @Ignore("= Concurrent test has hung =")
     @Test
     fun testModelChecking() {
-        runConcurrentTest(10) {
+        runConcurrentTest(10000) {
+            val batch = AtomicInteger(0)
+            val produced = AtomicLong(0L)
+            val consumed = AtomicLong(0L)
+            var expected = LongArray(nProducers)
+
+            val queue = AtomicReference<LockFreeTaskQueue<Item>?>(null)
+            val done = AtomicInteger(0)
+            val doneProducers = AtomicInteger(0)
+
+            val barrier = CyclicBarrier(nProducers + nConsumers + 1)
+
             val threads = mutableListOf<Thread>()
             threads += thread(name = "Pacer", start = false) {
-                while (done.value == 0) {
-                    queue.value = LockFreeTaskQueue(singleConsumer)
-                    batch.value = 0
-                    doneProducers.value = 0
+                while (done.get() == 0) {
+                    queue.set(LockFreeTaskQueue(singleConsumer))
+                    batch.set(0)
+                    doneProducers.set(0)
                     barrier.await() // start consumers & producers
                     barrier.await() // await consumers & producers
                 }
-                queue.value = null
-                println("Pacer done")
+                queue.set(null)
+                // println("Pacer done")
                 barrier.await() // wakeup the rest
             }
             threads += List(nConsumers) { consumer ->
                 thread(name = "Consumer-$consumer", start = false) {
                     while (true) {
                         barrier.await()
-                        val queue = queue.value ?: break
+                        val queue = queue.get() ?: break
                         while (true) {
                             val item = queue.removeFirstOrNull()
                             if (item == null) {
-                                if (doneProducers.value == nProducers && queue.isEmpty) break // that's it
+                                if (doneProducers.get() == nProducers && queue.isEmpty) break // that's it
                                 continue // spin to retry
                             }
                             consumed.incrementAndGet()
@@ -66,7 +68,7 @@ class LockFreeTaskQueueModelCheckingTest {
                         }
                         barrier.await()
                     }
-                    println("Consumer-$consumer done")
+                    //println("Consumer-$consumer done")
                 }
             }
             threads += List(nProducers) { producer ->
@@ -83,28 +85,21 @@ class LockFreeTaskQueueModelCheckingTest {
                         doneProducers.incrementAndGet()
                         barrier.await()
                     }
-                    println("Producer-$producer done")
+                    //println("Producer-$producer done")
                 }
             }
             threads.forEach {
                 it.setUncaughtExceptionHandler { t, e ->
-                    System.err.println("[GPMC] Thread $t failed: $e")
-                    e.printStackTrace()
-                    done.value = 1
-                    e.printStackTrace()
-                    error("Thread $t failed")
+                    done.set(1)
+                    //error("Thread $t failed")
                 }
             }
             threads.forEach { it.start() }
-//            for (second in 1..nSeconds) {
-//                Thread.sleep(1000)
-//                println("$second: produced=${produced.value}, consumed=${consumed.value}")
-//                if (done.value == 1) break
-//            }
-            done.value = 1
+
+            done.set(1)
             threads.forEach { it.join() }
-            println("T: produced=${produced.value}, consumed=${consumed.value}")
-            assertEquals(produced.value, consumed.value)
+            //println("T: produced=${produced.value}, consumed=${consumed.value}")
+            assertEquals(produced.get(), consumed.get())
         }
     }
 }

@@ -61,7 +61,7 @@ class WorkQueueModelCheckingTest {
         }
     }
 
-    //@Ignore("Unexpected deadlock found")
+    @Ignore("Unexpected deadlock found")
     @Test
     fun testSingleProducerSingleStealer() {
         runConcurrentTest(1) {

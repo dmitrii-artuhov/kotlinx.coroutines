@@ -20,9 +20,9 @@ class LockFreeTaskQueueModelCheckingTest : GPMCTestBase() {
 
     private class Item(val producer: Int, val index: Long)
 
-    @Ignore("= Concurrent test has hung = (smaller invocation count gives no error)")
+    @Ignore("java.lang.Exception: Trying to switch the execution to thread 2, but only the following threads are eligible to switch: [1]")
     @Test
-    fun testModelChecking() = runGPMCTest(10_000) {
+    fun testModelChecking() = runGPMCTest(100) {
         val batch = AtomicInteger(0)
         val produced = AtomicLong(0L)
         val consumed = AtomicLong(0L)

@@ -47,10 +47,9 @@ class LockFreeLinkedListLongModelCheckingTest : GPMCTestBase() {
         check(sizes.containsAll(List(itemsCount + 1) { it }))
     }
 
-    @Ignore("= Concurrent test has hung = (Exception in thread 'adder-0' java.lang.IllegalStateException: " +
-            "Trying to switch the execution to thread 0, but only the following threads are eligible to switch: [2])")
+    @Ignore("java.lang.Exception: Trying to switch the execution to thread 0, but only the following threads are eligible to switch: [2])")
     @Test
-    fun testModelChecking() = runGPMCTest {
+    fun testModelChecking() = runGPMCTest(1000) {
         val threads = mutableListOf<Thread>()
         val list = LockFreeLinkedListHead()
         val workingAdders = AtomicInteger(nAddThreads)
@@ -85,7 +84,7 @@ class LockFreeLinkedListLongModelCheckingTest : GPMCTestBase() {
                     yield(i)
         }
         list.forEach { node ->
-            require(node !is kotlinx.coroutines.internal.LockFreeLinkedListLongStressTest.IntNode || node.i == expected.next())
+            require(node !is IntNode || node.i == expected.next())
         }
         require(!expected.hasNext())
     }

@@ -195,6 +195,7 @@ fun Test.configureJvmForLincheck(segmentSize: Int = 1) {
     systemProperty("kotlinx.coroutines.semaphore.maxSpinCycles", 1) // better for the model checking mode
     systemProperty("kotlinx.coroutines.bufferedChannel.segmentSize", segmentSize)
     systemProperty("kotlinx.coroutines.bufferedChannel.expandBufferCompletionWaitIterations", 1)
+    systemProperty("lincheck.log.file", "lincheck-log.txt")
 }
 
 // Always check additional test sets

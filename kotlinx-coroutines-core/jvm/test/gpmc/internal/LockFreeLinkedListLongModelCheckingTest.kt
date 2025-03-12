@@ -49,7 +49,7 @@ class LockFreeLinkedListLongModelCheckingTest : GPMCTestBase() {
 
     @Ignore("java.lang.Exception: Trying to switch the execution to thread 0, but only the following threads are eligible to switch: [2])")
     @Test
-    fun testModelChecking() = runGPMCTest(1000) {
+    fun testModelChecking() = runGPMCTest(10000) {
         val threads = mutableListOf<Thread>()
         val list = LockFreeLinkedListHead()
         val workingAdders = AtomicInteger(nAddThreads)

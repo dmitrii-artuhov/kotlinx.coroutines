@@ -14,7 +14,7 @@ class WorkQueueModelCheckingTest : GPMCTestBase() {
     @Test
     fun testStealing() {
         schedulerTimeSource = TestTimeSource(Long.MAX_VALUE) //  always steal
-        runGPMCTest(100) {
+        runGPMCTest(10000) {
             val threads = mutableListOf<Thread>()
             val offerIterations = 3
             val stealersCount = 2
@@ -66,7 +66,7 @@ class WorkQueueModelCheckingTest : GPMCTestBase() {
     @Test
     fun testSingleProducerSingleStealer() {
         schedulerTimeSource = TestTimeSource(Long.MAX_VALUE) //  always steal
-        runGPMCTest(100) {
+        runGPMCTest(10000) {
             val threads = mutableListOf<Thread>()
             val offerIterations = 3
             val producerQueue = WorkQueue()

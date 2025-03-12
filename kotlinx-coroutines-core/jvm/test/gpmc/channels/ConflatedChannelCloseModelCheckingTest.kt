@@ -8,22 +8,21 @@ import java.util.concurrent.atomic.*
 class ConflatedChannelCloseModelCheckingTest : GPMCTestBase() {
     private val nSenders = 1
 
-    @Ignore("All unfinished threads are in deadlock: huge execution history which does fit in console height")
     @Test
-    fun testModelCheckingClose() = runGPMCTest(1) {
+    fun testModelCheckingClose() = runGPMCTest(100) {
         val curChannel = AtomicReference<Channel<Int>>(Channel(Channel.CONFLATED))
         val sent = AtomicInteger()
         val closed = AtomicInteger()
         val received = AtomicInteger()
-        val pool = newFixedThreadPoolContext(nSenders + 2, "TestStressClose")
-
-        pool.use {
-            runBlocking {
+        newFixedThreadPoolContext(nSenders + 2, "TestStressClose").use { pool ->
+            runBlocking(pool) {
+                val sendersStatus = MutableList(nSenders) { AtomicBoolean(false) }
                 val senderJobs = List(nSenders) { Job() }
                 val senders = List(nSenders) { senderId ->
                     launch(pool) {
-                        var x = senderId
                         try {
+                            sendersStatus[senderId].set(true)
+                            var x = senderId
                             while (isActive) {
                                 curChannel.get().trySend(x).onSuccess {
                                     x += nSenders
@@ -35,9 +34,11 @@ class ConflatedChannelCloseModelCheckingTest : GPMCTestBase() {
                         }
                     }
                 }
+                val closerStatus = AtomicBoolean(false)
                 val closerJob = Job()
                 val closer = launch(pool) {
                     try {
+                        closerStatus.set(true)
                         while (isActive) {
                             flipChannel(curChannel)
                             closed.incrementAndGet()
@@ -56,7 +57,16 @@ class ConflatedChannelCloseModelCheckingTest : GPMCTestBase() {
                     }
                 }
 
-                senders.forEach { it.cancel() }
+                // Note: here we must wait until all coroutines are started, before cancelling them, since no delay
+                //       is possible, we need some flags! Because in coroutines we use try {} finally {} blocks!
+                senders.forEachIndexed { index, it ->
+                    while (!sendersStatus[index].get()); // wait for sender to start before cancelling it
+                    check(sendersStatus[index].get())
+                    it.cancel()
+                }
+
+                while (!closerStatus.get()); // wait for closer to start before cancelling it
+                check(closerStatus.get())
                 closer.cancel()
                 // wait them to complete
                 senderJobs.forEach { it.join() }

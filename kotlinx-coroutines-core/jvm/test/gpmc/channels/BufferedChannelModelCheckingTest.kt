@@ -2,66 +2,64 @@ package kotlinx.coroutines.channels
 
 import gpmc.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.testing.*
 import org.junit.*
+import java.util.concurrent.*
 
+/**
+ * Would hang because of [Dispatchers.Default].
+ * Passes with custom pool.
+ */
 class BufferedChannelModelCheckingTest : GPMCTestBase() {
-    private val capacity: Int = 2
+    private val capacity: Int = 10 // 1, 10, 100, 100_000, 1_000_000
 
-    @Ignore(
-        "Internal lincheck error: Check failed.\n" +
-        "java.lang.IllegalStateException: Check failed.\n" +
-        "at org.jetbrains.kotlinx.lincheck.strategy.managed.ManagedStrategy.runInvocation(ManagedStrategy.kt:245)"
-    )
     @Test
-    fun testModelCheck() = runGPMCTest {
-        runBlocking {
+    fun testModelCheck() = runGPMCTest(100) {
+        Executors.newFixedThreadPool(2).asCoroutineDispatcher().use { pool ->
             val n = 3
             val q = Channel<Int>(capacity)
-            val sender = launch(Dispatchers.Default) {
-                for (i in 1..n) {
-                    q.send(i)
+
+            runBlocking(pool) {
+                val sender = launch(pool /*Dispatchers.Default*/) {
+                    for (i in 1..n) {
+                        q.send(i)
+                    }
                 }
-            }
-            val receiver = launch(Dispatchers.Default) {
-                for (i in 1..n) {
-                    val next = q.receive()
-                    check(next == i)
+                val receiver = launch(pool /*Dispatchers.Default*/) {
+                    for (i in 1..n) {
+                        val next = q.receive()
+                        check(next == i)
+                    }
                 }
+                sender.join()
+                receiver.join()
             }
-            sender.join()
-            receiver.join()
         }
     }
 
-    @Ignore(
-        "Hangs or lincheck fails internally with: Check failed.\n" +
-        "java.lang.IllegalStateException: Check failed.\n" +
-        "at org.jetbrains.kotlinx.lincheck.strategy.managed.ManagedStrategy.runInvocation(ManagedStrategy.kt:245)"
-    )
     @Test
-    fun joinJob() = runGPMCTest(1) {
-        runBlocking {
-            val job = launch(Dispatchers.Default) {}
-            job.join()
-        }
-    }
+    fun testBurst() = runGPMCTest(100) {
+        val nTimes = 3
 
-    @Ignore(
-        "Check failed.\n" +
-        "java.lang.IllegalStateException: Check failed.\n" +
-        "at org.jetbrains.kotlinx.lincheck.strategy.managed.ManagedStrategy.runInvocation(ManagedStrategy.kt:245)"
-    )
-    @Test
-    fun singleThreadLaunchOnPool() = runGPMCTest(1) {
-        runBlocking {
-            val ch = Channel<Int>()
-            val j1 = launch(Dispatchers.Default) {
-                val v = ch.receive()
+        Executors.newFixedThreadPool(4).asCoroutineDispatcher().use { pool ->
+            runBlocking(pool) {
+                repeat(nTimes) {
+                    val channel = Channel<Int>(capacity)
+                    val sender = launch(pool /*Dispatchers.Default*/) {
+                        for (i in 1..capacity * 2) {
+                            channel.send(i)
+                        }
+                    }
+                    val receiver = launch(pool /*Dispatchers.Default*/) {
+                        for (i in 1..capacity * 2) {
+                            val next = channel.receive()
+                            check(next == i)
+                        }
+                    }
+                    sender.join()
+                    receiver.join()
+                }
             }
-            val j2 = launch(Dispatchers.Default) {
-                ch.send(1)
-            }
-            joinAll(j1, j2)
         }
     }
 }

@@ -20,7 +20,7 @@ class LockFreeTaskQueueModelCheckingTest : GPMCTestBase() {
 
     private class Item(val producer: Int, val index: Long)
 
-    @Ignore("java.lang.Exception: Trying to switch the execution to thread 2, but only the following threads are eligible to switch: [1]")
+    @Ignore("= Concurrent test has hung =")
     @Test
     fun testModelChecking() = runGPMCTest(100) {
         val batch = AtomicInteger(0)

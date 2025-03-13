@@ -47,22 +47,27 @@ class LockFreeLinkedListLongModelCheckingTest : GPMCTestBase() {
         check(sizes.containsAll(List(itemsCount + 1) { it }))
     }
 
-    @Ignore("java.lang.Exception: Trying to switch the execution to thread 0, but only the following threads are eligible to switch: [2])")
+    //@Ignore("""
+    //    java.lang.Exception: Trying to switch the execution to thread 0, but only the following threads are eligible to switch: [2])
+    //    Problem with lists, incorrect thread switch only happens when threads are accessed via list indexing.
+    //""")
     @Test
     fun testModelChecking() = runGPMCTest(10000) {
-        val threads = mutableListOf<Thread>()
+        // val threads = mutableListOf<Thread>()
         val list = LockFreeLinkedListHead()
         val workingAdders = AtomicInteger(nAddThreads)
 
-        for (j in 0 until nAddThreads)
-            threads += thread(start = false, name = "adder-$j") {
-                for (i in j until nAdded step nAddThreads) {
+        // for (j in 0 until nAddThreads)
+            /*threads +=*/
+            val t1 = thread(start = false, name = "adder") {
+                for (i in /*j*/ 0 until nAdded step nAddThreads) {
                     list.addLast(IntNode(i), Int.MAX_VALUE)
                 }
                 workingAdders.decrementAndGet()
             }
-        for (j in 0 until nRemoveThreads)
-            threads += thread(start = false, name = "remover-$j") {
+        // for (j in 0 until nRemoveThreads)
+            /*threads +=*/
+            val t2 = thread(start = false, name = "remover") {
                 val rnd = Random()
                 do {
                     val lastTurn = workingAdders.get() == 0
@@ -72,10 +77,13 @@ class LockFreeLinkedListLongModelCheckingTest : GPMCTestBase() {
                     }
                 } while (!lastTurn)
             }
-        for (thread in threads)
-            thread.start()
-        for (thread in threads)
-            thread.join()
+//        for (thread in threads)
+//            thread.start()
+//        for (thread in threads)
+//            thread.join()
+        t1.start(); t2.start()
+        t1.join(); t2.join()
+
         // verification
         list.validate()
         val expected = iterator {

@@ -10,12 +10,12 @@ import kotlin.jvm.internal.*
 import kotlin.test.*
 
 class WorkQueueModelCheckingTest : GPMCTestBase() {
-    @Ignore("java.lang.IllegalStateException: Trying to switch the execution to thread 3, but only the following threads are eligible to switch: [1]")
+    //@Ignore("java.lang.IllegalStateException: Trying to switch the execution to thread 3, but only the following threads are eligible to switch: [1]")
     @Test
     fun testStealing() {
         schedulerTimeSource = TestTimeSource(Long.MAX_VALUE) //  always steal
         runGPMCTest(10000) {
-            val threads = mutableListOf<Thread>()
+            //val threads = mutableListOf<Thread>()
             val offerIterations = 3
             val stealersCount = 2
             val stolenTasks = Array(stealersCount) { GlobalQueue() }
@@ -25,7 +25,8 @@ class WorkQueueModelCheckingTest : GPMCTestBase() {
 
             val startLatch = CountDownLatch(1)
 
-            threads += thread(name = "producer") {
+            /*threads +=*/
+            val producer = thread(name = "producer") {
                 startLatch.await()
                 for (i in 1..offerIterations) {
                     while (producerQueue.size > BUFFER_CAPACITY / 2) {
@@ -38,42 +39,51 @@ class WorkQueueModelCheckingTest : GPMCTestBase() {
                 producerFinished.set(true)
             }
 
-            for (i in 0 until stealersCount) {
-                threads += thread(name = "stealer $i") {
-                    val ref = Ref.ObjectRef<Task?>()
-                    val myQueue = WorkQueue()
-                    startLatch.await()
-                    while (!producerFinished.get() || producerQueue.size != 0) {
-                        stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
-                        producerQueue.trySteal(ref)
-                    }
-
-                    // Drain last element which is not counted in buffer
+            /*for (i in 0 until stealersCount) {
+                threads +=
+            }*/
+            val stealerBody = { i: Int ->
+                val ref = Ref.ObjectRef<Task?>()
+                val myQueue = WorkQueue()
+                startLatch.await()
+                while (!producerFinished.get() || producerQueue.size != 0) {
                     stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
                     producerQueue.trySteal(ref)
-                    stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
                 }
+
+                // Drain last element which is not counted in buffer
+                stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
+                producerQueue.trySteal(ref)
+                stolenTasks[i].addAll(myQueue.drain(ref).map { task(it) })
             }
+            val stealer1 = thread(name = "stealer 0") { stealerBody(0) }
+            val stealer2 = thread(name = "stealer 1") { stealerBody(1) }
 
             startLatch.countDown()
-            threads.forEach { it.join() }
+
+            // threads.forEach { it.join() }
+            producer.join()
+            stealer1.join()
+            stealer2.join()
+
             validate(offerIterations, stolenTasks, globalQueue)
         }
         schedulerTimeSource = NanoTimeSource
     }
 
-    @Ignore("java.lang.IllegalStateException: Trying to switch the execution to thread 2, but only the following threads are eligible to switch: [1]")
+    //@Ignore("java.lang.IllegalStateException: Trying to switch the execution to thread 2, but only the following threads are eligible to switch: [1]")
     @Test
     fun testSingleProducerSingleStealer() {
         schedulerTimeSource = TestTimeSource(Long.MAX_VALUE) //  always steal
         runGPMCTest(10000) {
-            val threads = mutableListOf<Thread>()
+            //val threads = mutableListOf<Thread>()
             val offerIterations = 3
             val producerQueue = WorkQueue()
             val startLatch = CountDownLatch(1)
             var added = 0
 
-            threads += thread(name = "producer") {
+            /*threads +=*/
+            val producer = thread(name = "producer") {
                 startLatch.await()
                 for (i in 1..offerIterations) {
                     while (producerQueue.size == BUFFER_CAPACITY - 1) {
@@ -88,7 +98,8 @@ class WorkQueueModelCheckingTest : GPMCTestBase() {
             }
 
             val stolen = GlobalQueue()
-            threads += thread(name = "stealer") {
+            /*threads +=*/
+            val stealer = thread(name = "stealer") {
                 val myQueue = WorkQueue()
                 val ref = Ref.ObjectRef<Task?>()
                 startLatch.await()
@@ -101,7 +112,11 @@ class WorkQueueModelCheckingTest : GPMCTestBase() {
             }
 
             startLatch.countDown()
-            threads.forEach { it.join() }
+
+            //threads.forEach { it.join() }
+            producer.join()
+            stealer.join()
+
             assertEquals((1L..offerIterations).toSet(), stolen.map { it.submissionTime }.toSet())
         }
         schedulerTimeSource = NanoTimeSource

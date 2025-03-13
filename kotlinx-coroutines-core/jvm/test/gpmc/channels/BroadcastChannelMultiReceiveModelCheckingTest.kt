@@ -37,16 +37,19 @@ class BroadcastChannelMultiReceiveModelCheckingTest : GPMCTestBase() {
                                 sentTotal.set(i) // only was for it if it was not cancelled
                             }
                         }
-                    val receivers = mutableListOf<Job>()
+                    //val receivers = mutableListOf<Job>()
                     // fun printProgress() {
                     //     println("Sent ${sentTotal.get()}, received ${receivedTotal.get()}, receivers=${receivers.size}")
                     // }
                     // ramp up receivers
-                    repeat(nReceivers) {
+
+                    check(nReceivers == 1)
+                    //repeat(nReceivers) {
                         // delay(100)
-                        val receiverIndex = receivers.size
+                        val receiverIndex = 0 // receivers.size
                         val name = "Receiver$receiverIndex"
-                        receivers += launch(pool + CoroutineName(name)) {
+                        /*receivers +=*/
+                        val receiver = launch(pool + CoroutineName(name)) {
                             val channel = broadcast.openSubscription()
                             when (receiverIndex % 5) {
                                 0 -> doReceive(channel, receiverIndex, kind, lastReceived, receivedTotal, stopOnReceive)
@@ -58,7 +61,7 @@ class BroadcastChannelMultiReceiveModelCheckingTest : GPMCTestBase() {
                             channel.cancel()
                         }
                         // printProgress()
-                    }
+                    //}
                     // repeat(nSeconds) {
                     //     delay(1000)
                     //     printProgress()
@@ -68,10 +71,10 @@ class BroadcastChannelMultiReceiveModelCheckingTest : GPMCTestBase() {
                     stopOnReceive.set(total)
                     try {
                         // withTimeout(5000) {
-                        receivers.forEachIndexed { index, receiver ->
-                            if (lastReceived[index].get() >= total) receiver.cancel()
+                        //receivers.forEachIndexed { index, receiver ->
+                            if (lastReceived[/*index*/ 0].get() >= total) receiver.cancel()
                             receiver.join()
-                        }
+                        //}
                         // }
                     } catch (e: Exception) {
                         // println("Failed: $e")

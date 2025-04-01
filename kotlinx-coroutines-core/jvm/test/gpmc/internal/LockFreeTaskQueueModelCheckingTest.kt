@@ -20,7 +20,6 @@ class LockFreeTaskQueueModelCheckingTest : GPMCTestBase() {
 
     private class Item(val producer: Int, val index: Long)
 
-    @Ignore("= Concurrent test has hung =")
     @Test
     fun testModelChecking() = runGPMCTest(100) {
         val batch = AtomicInteger(0)

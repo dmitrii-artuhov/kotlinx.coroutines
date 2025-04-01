@@ -20,28 +20,29 @@ class SimpleSendReceiveJvmTestModelChecking : GPMCTestBase() {
 
     @Test
     fun testSimpleSendReceive() = runGPMCTest(100) {
-        Executors.newFixedThreadPool(2).asCoroutineDispatcher().use { pool ->
-            val channel = kind.create<Int>()
+        val channel = kind.create<Int>()
+        val pool = Executors.newFixedThreadPool(2).asCoroutineDispatcher()
 
-            runBlocking(pool) {
-                //val ctx = if (concurrent) Dispatchers.Default else coroutineContext
-                launch(/*ctx*/ pool) {
-                    repeat(n) { channel.send(it) }
-                    channel.close()
-                }
-                var expected = 0
-                for (x in channel) {
-                    if (!kind.isConflated) {
-                        assertEquals(expected++, x)
-                    } else {
-                        assertTrue(x >= expected)
-                        expected = x + 1
-                    }
-                }
+        runBlocking(pool) {
+            //val ctx = if (concurrent) Dispatchers.Default else coroutineContext
+            launch(/*ctx*/ pool) {
+                repeat(n) { channel.send(it) }
+                channel.close()
+            }
+            var expected = 0
+            for (x in channel) {
                 if (!kind.isConflated) {
-                    assertEquals(n, expected)
+                    assertEquals(expected++, x)
+                } else {
+                    assertTrue(x >= expected)
+                    expected = x + 1
                 }
             }
+            if (!kind.isConflated) {
+                assertEquals(n, expected)
+            }
         }
+
+        pool.close()
     }
 }

@@ -3,8 +3,10 @@ package kotlinx.coroutines.gpmc.internal
 import gpmc.*
 import kotlinx.coroutines.internal.*
 import kotlinx.coroutines.internal.LockFreeLinkedListLongStressTest.*
+import org.jetbrains.kotlinx.lincheck.*
 import org.junit.*
 import java.util.*
+import java.util.concurrent.*
 import java.util.concurrent.atomic.*
 import kotlin.concurrent.*
 
@@ -47,7 +49,6 @@ class LockFreeLinkedListLongModelCheckingTest : GPMCTestBase() {
         check(sizes.containsAll(List(itemsCount + 1) { it }))
     }
 
-    @Ignore("java.lang.Exception: Trying to switch the execution to thread 0, but only the following threads are eligible to switch: [2])")
     @Test
     fun testModelChecking() = runGPMCTest(10000) {
         val threads = mutableListOf<Thread>()

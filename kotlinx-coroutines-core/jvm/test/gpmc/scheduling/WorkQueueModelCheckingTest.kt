@@ -1,7 +1,6 @@
 package kotlinx.coroutines.scheduling
 
 import gpmc.*
-import org.jetbrains.kotlinx.lincheck.*
 import org.junit.Test
 import java.util.concurrent.*
 import java.util.concurrent.atomic.*
@@ -10,7 +9,6 @@ import kotlin.jvm.internal.*
 import kotlin.test.*
 
 class WorkQueueModelCheckingTest : GPMCTestBase() {
-    @Ignore("java.lang.IllegalStateException: Trying to switch the execution to thread 3, but only the following threads are eligible to switch: [1]")
     @Test
     fun testStealing() {
         schedulerTimeSource = TestTimeSource(Long.MAX_VALUE) //  always steal
@@ -62,7 +60,6 @@ class WorkQueueModelCheckingTest : GPMCTestBase() {
         schedulerTimeSource = NanoTimeSource
     }
 
-    @Ignore("java.lang.IllegalStateException: Trying to switch the execution to thread 2, but only the following threads are eligible to switch: [1]")
     @Test
     fun testSingleProducerSingleStealer() {
         schedulerTimeSource = TestTimeSource(Long.MAX_VALUE) //  always steal

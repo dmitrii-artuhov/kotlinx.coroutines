@@ -12,78 +12,83 @@ import java.util.concurrent.atomic.*
  */
 class BroadcastChannelMultiReceiveModelCheckingTest : GPMCTestBase() {
     private val nReceivers = 1
-    private val nSeconds = 3
+    // private val nSeconds = 3
 
     @Ignore("In Debug mode '= Concurrent test has hung =', in Regular mode just spins endlessly")
     @Test
     fun testModelChecking() {
         runGPMCTest(1) {
-            newFixedThreadPoolContext(nReceivers + 1, "BroadcastChannelMultiReceiveModelCheckingTest").use { pool ->
-                val kind: TestBroadcastChannelKind = TestBroadcastChannelKind.ARRAY_1
-                val broadcast = kind.create<Long>()
+            val pool = newFixedThreadPoolContext(nReceivers + 1, "BroadcastChannelMultiReceiveModelCheckingTest")
+            val kind: TestBroadcastChannelKind = TestBroadcastChannelKind.ARRAY_1
+            val broadcast = kind.create<Long>()
 
-                val sentTotal = AtomicLong()
-                val receivedTotal = AtomicLong()
-                val stopOnReceive = AtomicLong(-1)
-                val lastReceived = Array(nReceivers) { AtomicLong(-1) }
+            val sentTotal = AtomicLong()
+            val receivedTotal = AtomicLong()
+            val stopOnReceive = AtomicLong(-1)
+            val lastReceived = Array(nReceivers) { AtomicLong(-1) }
 
-                runBlocking(pool) {
-                    val sender =
-                        launch(pool + CoroutineName("Sender")) {
-                            var i = 0L
-                            while (isActive) {
-                                i++
-                                broadcast.send(i) // could be cancelled
-                                sentTotal.set(i) // only was for it if it was not cancelled
-                            }
+            runBlocking(pool) {
+                println("--- BroadcastChannelMultiReceiveStressTest $kind with nReceivers=$nReceivers")
+                val sender =
+                    launch(pool + CoroutineName("Sender")) {
+                        var i = 0L
+                        while (isActive) {
+                            i++
+                            broadcast.send(i) // could be cancelled
+                            sentTotal.set(i) // only was for it if it was not cancelled
                         }
-                    val receivers = mutableListOf<Job>()
-                    // fun printProgress() {
-                    //     println("Sent ${sentTotal.get()}, received ${receivedTotal.get()}, receivers=${receivers.size}")
-                    // }
-                    // ramp up receivers
-                    repeat(nReceivers) {
-                        // delay(100)
-                        val receiverIndex = receivers.size
-                        val name = "Receiver$receiverIndex"
-                        receivers += launch(pool + CoroutineName(name)) {
-                            val channel = broadcast.openSubscription()
-                            when (receiverIndex % 5) {
-                                0 -> doReceive(channel, receiverIndex, kind, lastReceived, receivedTotal, stopOnReceive)
-                                1 -> doReceiveCatching(channel, receiverIndex, kind, lastReceived, receivedTotal, stopOnReceive)
-                                2 -> doIterator(channel, receiverIndex, kind, lastReceived, receivedTotal, stopOnReceive)
-                                3 -> doReceiveSelect(channel, receiverIndex, kind, lastReceived, receivedTotal, stopOnReceive)
-                                4 -> doReceiveCatchingSelect(channel, receiverIndex, kind, lastReceived, receivedTotal, stopOnReceive)
-                            }
-                            channel.cancel()
-                        }
-                        // printProgress()
                     }
-                    // repeat(nSeconds) {
-                    //     delay(1000)
-                    //     printProgress()
-                    // }
-                    sender.cancelAndJoin()
-                    val total = sentTotal.get()
-                    stopOnReceive.set(total)
-                    try {
-                        // withTimeout(5000) {
-                        receivers.forEachIndexed { index, receiver ->
-                            if (lastReceived[index].get() >= total) receiver.cancel()
-                            receiver.join()
+                val receivers = mutableListOf<Job>()
+                // fun printProgress() {
+                //     println("Sent ${sentTotal.get()}, received ${receivedTotal.get()}, receivers=${receivers.size}")
+                // }
+                // ramp up receivers
+                repeat(nReceivers) {
+                    delay(100)
+                    val receiverIndex = receivers.size
+                    val name = "Receiver$receiverIndex"
+                    println("Launching $name")
+                    receivers += launch(pool + CoroutineName(name)) {
+                        val channel = broadcast.openSubscription()
+                        when (receiverIndex % 5) {
+                            0 -> doReceive(channel, receiverIndex, kind, lastReceived, receivedTotal, stopOnReceive)
+                            1 -> doReceiveCatching(channel, receiverIndex, kind, lastReceived, receivedTotal, stopOnReceive)
+                            2 -> doIterator(channel, receiverIndex, kind, lastReceived, receivedTotal, stopOnReceive)
+                            3 -> doReceiveSelect(channel, receiverIndex, kind, lastReceived, receivedTotal, stopOnReceive)
+                            4 -> doReceiveCatchingSelect(channel, receiverIndex, kind, lastReceived, receivedTotal, stopOnReceive)
                         }
-                        // }
-                    } catch (e: Exception) {
-                        // println("Failed: $e")
-                        //pool.dumpThreads("Threads in pool")
-                        // receivers.indices.forEach { index ->
-                        //     println("lastReceived[$index] = ${lastReceived[index].get()}")
-                        // }
-                        throw e
+                        channel.cancel()
                     }
-                    // println("  Received ${receivedTotal.get()} events")
+                    // printProgress()
                 }
+                // repeat(nSeconds) {
+                //     delay(1000)
+                //     printProgress()
+                // }
+                sender.cancelAndJoin()
+                println("Tested $kind with nReceivers=$nReceivers")
+                val total = sentTotal.get()
+                println("      Sent $total events, waiting for receivers")
+                stopOnReceive.set(total)
+                try {
+                    // withTimeout(5000) {
+                    receivers.forEachIndexed { index, receiver ->
+                        if (lastReceived[index].get() >= total) receiver.cancel()
+                        receiver.join()
+                    }
+                    // }
+                } catch (e: Exception) {
+                    println("Failed: $e")
+                    pool.dumpThreads("Threads in pool")
+                    receivers.indices.forEach { index ->
+                        println("lastReceived[$index] = ${lastReceived[index].get()}")
+                    }
+                    throw e
+                }
+                 println("  Received ${receivedTotal.get()} events")
             }
+
+            pool.close()
         }
     }
 
@@ -132,12 +137,7 @@ class BroadcastChannelMultiReceiveModelCheckingTest : GPMCTestBase() {
     ) {
         while (true) {
             val stop = doReceived(
-                receiverIndex,
-                channel.receiveCatching().getOrNull() ?: break,
-                kind,
-                lastReceived,
-                receivedTotal,
-                stopOnReceive
+                receiverIndex, channel.receiveCatching().getOrNull() ?: break, kind, lastReceived, receivedTotal, stopOnReceive
             )
             if (stop) break
         }

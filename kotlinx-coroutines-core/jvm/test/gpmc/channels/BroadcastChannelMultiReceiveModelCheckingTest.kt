@@ -1,7 +1,8 @@
-package kotlinx.coroutines.channels
+package kotlinx.coroutines.gpmc.channels
 
 import gpmc.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.*
 import kotlinx.coroutines.selects.*
 import kotlinx.coroutines.testing.*
 import org.junit.*

@@ -1,12 +1,9 @@
-package kotlinx.coroutines.channels
+package kotlinx.coroutines.gpmc.channels
 
 import gpmc.*
-import kotlinx.coroutines.testing.*
 import kotlinx.coroutines.*
-import org.jetbrains.kotlinx.lincheck.*
+import kotlinx.coroutines.channels.*
 import org.junit.Test
-import org.junit.runner.*
-import org.junit.runners.*
 import java.util.concurrent.*
 import kotlin.test.*
 

@@ -1,6 +1,7 @@
-package kotlinx.coroutines.scheduling
+package kotlinx.coroutines.gpmc.scheduling
 
 import gpmc.*
+import kotlinx.coroutines.scheduling.*
 import org.junit.Test
 import java.util.concurrent.*
 import java.util.concurrent.atomic.*

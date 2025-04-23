@@ -1,8 +1,8 @@
-package kotlinx.coroutines.channels
+package kotlinx.coroutines.gpmc.channels
 
 import gpmc.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.testing.*
+import kotlinx.coroutines.channels.*
 import org.junit.*
 import java.util.concurrent.*
 

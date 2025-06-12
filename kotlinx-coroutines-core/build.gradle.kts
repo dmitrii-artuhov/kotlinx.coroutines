@@ -8,6 +8,12 @@ import org.jetbrains.kotlin.gradle.targets.native.tasks.*
 import org.jetbrains.kotlin.gradle.tasks.*
 import org.jetbrains.kotlin.gradle.testing.*
 import ru.vyarus.gradle.plugin.animalsniffer.AnimalSniffer
+import java.lang.reflect.Method
+import java.lang.reflect.Modifier
+import java.net.URLClassLoader
+import java.time.Duration
+import kotlin.collections.filter
+import kotlin.collections.forEach
 
 plugins {
     kotlin("multiplatform")
@@ -306,3 +312,173 @@ tasks.withType<AnimalSniffer> {
 animalsniffer {
     defaultTargets = setOf("jvmMain")
 }
+
+
+typealias TestSuite = Map<Class<*>, List<Method>>
+
+tasks.register("runTestsWithTraceRecorder") {
+    dependsOn("compileTestKotlinJvm")
+
+    doLast {
+        // filter class by prefix: "org.example."
+        // filter methods of specific class by full name: "org.example.Clazz::method"
+        val includePatterns = listOf<String>()
+        val excludePatterns = listOf<String>(
+            "kotlinx.coroutines.lincheck.",
+
+            // hung
+            "kotlinx.coroutines.AsyncLazyTest",
+            "kotlinx.coroutines.AsyncTest",
+            "kotlinx.coroutines.AtomicCancellationCommonTest",
+            "kotlinx.coroutines.AtomicCancellationTest",
+            "kotlinx.coroutines.AwaitCancellationTest",
+            "kotlinx.coroutines.AsyncJvmTest::testAsyncWithFinally",
+            "kotlinx.coroutines.AsyncLazyTest::testCancelWhileComputing",
+            "kotlinx.coroutines.AsyncLazyTest::testCatchException",
+
+            // error
+            "kotlinx.coroutines.AsyncLazyTest::testCancelBeforeStart",
+        )
+        val testClasses = collectClassesOfDir("$buildDir/classes/kotlin/jvm/test")
+        val testSuite: TestSuite = testClasses
+            .asTestSuite()
+            .excludePatterns(excludePatterns)
+            .includeOnlyPatterns(includePatterns)
+
+        println("Running test suite:\n${testSuite.map { "${it.key}: ${it.value.joinToString(", ") { it.name }}" }.joinToString("\n")}")
+        runTestSuiteWithTraceRecorder(testSuite)
+    }
+}
+
+private fun List<Class<*>>.asTestSuite(): TestSuite = associate { it to collectTestMethodsOfClass(it) }
+    .filter { (_, methods) -> methods.isNotEmpty() }
+
+private fun TestSuite.excludePatterns(patterns: List<String>): TestSuite {
+    return this
+        // filter classes
+        .filterNot { (clazz, _) -> patterns.any { pattern -> clazz.name.startsWith(pattern) } }
+        // filter methods
+        .map { (clazz, methods) -> clazz to methods.filterNot { patterns.any { pattern -> "${clazz.name}::${it.name}" == pattern } } }
+        .toMap()
+}
+
+private fun TestSuite.includeOnlyPatterns(patterns: List<String>): TestSuite {
+    if (patterns.isEmpty()) return this
+    return this
+        // filter classes
+        .filter { (clazz, _) -> patterns.any { pattern ->
+            clazz.name.startsWith(pattern) || // class prefix is preserved explicitly
+                clazz.name == pattern.substringBeforeLast("::") // at least one method of the actual class is specified
+        } }
+        // filter methods
+        .map { (clazz, methods) ->
+            // at least one method is specified then preserve only provided methods
+            if (patterns.any { it.startsWith("${clazz.name}::") }) {
+                clazz to methods.filter { patterns.any { pattern -> "${clazz.name}::${it.name}" == pattern } }
+            } else {
+                // otherwise we preserve all methods, since the class was specified without any specific methods
+                clazz to methods
+            }
+        }
+        .toMap()
+}
+
+fun collectClassesOfDir(path: String): List<Class<*>> {
+    val testClassesDir = file(path)
+    val testClasses = mutableListOf<Class<*>>()
+
+    // Load all compiled test classes
+    if (testClassesDir.exists()) {
+        // Get the test runtime classpath to include all dependencies
+        val testRuntimeClasspath = project.configurations.getByName("jvmTestRuntimeClasspath").files
+        val urls = testRuntimeClasspath.map { it.toURI().toURL() }.toTypedArray() +
+            arrayOf(testClassesDir.toURI().toURL())
+
+        val classLoader = URLClassLoader(urls, this.javaClass.classLoader)
+
+        testClassesDir.walk().filter { it.isFile && it.name.endsWith(".class") }.forEach { file ->
+            val relativePath = file.relativeTo(testClassesDir).path
+            val className = relativePath.removeSuffix(".class").replace('/', '.')
+
+            // Skip inner classes, anonymous classes, etc.
+            if (!className.contains('$')) {
+                try {
+                    val clazz = classLoader.loadClass(className)
+                    // Don't process abstract classes and interfaces
+                    if (!Modifier.isAbstract(clazz.modifiers) && !Modifier.isInterface(clazz.modifiers)) {
+                        testClasses.add(clazz)
+                    }
+                } catch (_: Exception) {
+                    // Ignore
+                }
+            }
+        }
+    }
+
+    return testClasses.sortedBy { it.name }
+}
+
+fun collectTestMethodsOfClass(clazz: Class<*>): List<Method> {
+    // Find test methods (methods with @Test annotation)
+    val testMethods = clazz.declaredMethods.filter { method ->
+        try {
+            method.annotations.any { annotation ->
+                annotation.annotationClass.qualifiedName?.endsWith(".Test") == true
+            }
+        } catch (e: Exception) {
+            println("Error analyzing method for @Test annotation: ${clazz.name}.${method.name}: ${e.message}")
+            false
+        }
+    }
+    return testMethods.sortedBy { it.name }
+}
+
+fun Project.runTestSuiteWithTraceRecorder(testSuite: TestSuite) {
+    testSuite.forEach { (clazz, testMethods) ->
+        testMethods.forEach { method ->
+            try {
+                project.runTestWithTraceRecorder(clazz.name, method.name)
+            } catch (e: Exception) {
+                println("Error running test: ${clazz.name}.${method.name}: ${e.message}")
+            }
+        }
+    }
+}
+
+fun Project.runTestWithTraceRecorder(className: String, methodName: String) {
+    val testTask = tasks.named("jvmTest", Test::class) {
+        maxHeapSize = "48g"
+        timeout = Duration.ofSeconds(10)
+
+        filter {
+            setTestNameIncludePatterns(listOf("$className.$methodName"))
+        }
+
+        attachTraceRecorder(className, methodName)
+    }
+    println("Running test: $className.$methodName")
+    testTask.get().executeTests()
+}
+
+fun Test.attachTraceRecorder(className: String, methodName: String) {
+    val testIdentifier = "runTestWithTraceRecorder_${className.replace(".", "")}_${methodName.replace(" ", "")}"
+    val LINCHECK_DIRECTORY = "/Users/dmitriiart/IdeaProjects/lincheck"
+
+    val outputFile = "$buildDir/test-results/trace-recorder-tests/$testIdentifier.txt"
+    jvmArgs = listOf(
+        "-javaagent:$LINCHECK_DIRECTORY/build/libs/lincheck-fat.jar=$className,$methodName,$outputFile",
+        "-Dlincheck.traceRecorderMode=true"
+    )
+
+    reports {
+        html.required = true
+        junitXml.required = true
+        html.outputLocation = file("$buildDir/reports/trace-recorder-tests/$testIdentifier")
+        // junitXml.outputLocation = file("$buildDir/test-results/trace-recorder-tests/$testIdentifier")
+    }
+}
+
+tasks.named("jvmTest", Test::class) {
+    //attachTraceRecorder("class", "method")
+}
+
